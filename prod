@@ -1,0 +1,46 @@
+#!/bin/bash
+
+filepath=$(dirname $0)
+x=$filepath/prod.php
+PHP='/usr/bin/php'
+
+useage()
+{
+    echo "Useage: ./prod stop/start/reload/monitor"
+    exit;
+}
+
+process()
+{
+    if [ x"$method" == x"stop" ]
+    then
+        $PHP $x stop
+    elif [ x"$method" == x"start" ]
+    then
+        #nohup $PHP -f $x start >/dev/null 2>&1 &
+        $PHP -f $x start
+    elif [ x"$method" == x"reload" ]
+    then
+        $PHP -f $x reload
+    elif [ x"$method" == x"monitor" ]
+    then
+        $PHP -f $x monitor
+    fi
+}
+
+if [ $# -ne 1 ]
+then
+    useage
+fi
+
+if [ "x$1" == "xstart" ] || [ "x$1" == "xstop" ] || [ "x$1" == "xreload" ] || [ "x$1" == "xmonitor" ]
+then
+    method=$1
+else
+    useage
+fi
+
+process $method
+
+exit
+

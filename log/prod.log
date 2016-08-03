@@ -1,0 +1,68 @@
+[access] prod started. PID:26636
+[access] child create. PID:26637
+[access] add child pid [26637] to childs. PID:26636
+[access] child create. PID:26638
+[access] add child pid [26638] to childs. PID:26636
+[access] child create. PID:26639
+[access] add child pid [26639] to childs. PID:26636
+[access] child create. PID:26640
+[access] add child pid [26640] to childs. PID:26636
+[access] child create. PID:26641
+[access] add child pid [26641] to childs. PID:26636
+[access] Caught child exit	relock_result:1	pid26636	child_pid:26637
+[access] child_pid:26637 was unset from childs
+[access] Caught child exit	relock_result:1	pid26636	child_pid:26638
+[access] child_pid:26638 was unset from childs
+[access] Caught child exit	relock_result:1	pid26636	child_pid:26639
+[access] child_pid:26639 was unset from childs
+[access] Caught child exit	relock_result:1	pid26636	child_pid:26640
+[access] child_pid:26640 was unset from childs
+[access] Caught child exit	relock_result:1	pid26636	child_pid:26641
+[access] child_pid:26641 was unset from childs
+[access] empty dodododo
+[access] prod started. PID:26725
+[access] child create. PID:26726
+[access] add child pid [26726] to childs. PID:26725
+[access] child create. PID:26727
+[access] add child pid [26727] to childs. PID:26725
+[access] child create. PID:26728
+[access] add child pid [26728] to childs. PID:26725
+[access] child create. PID:26729
+[access] add child pid [26729] to childs. PID:26725
+[access] child create. PID:26730
+[access] add child pid [26730] to childs. PID:26725
+[access] Caught child exit	relock_result:1	pid26725	child_pid:26726
+[access] child_pid:26726 was unset from childs
+[access] Caught child exit	relock_result:1	pid26725	child_pid:26727
+[access] child_pid:26727 was unset from childs
+[access] Caught child exit	relock_result:1	pid26725	child_pid:26728
+[access] child_pid:26728 was unset from childs
+[access] Caught child exit	relock_result:1	pid26725	child_pid:26729
+[access] child_pid:26729 was unset from childs
+[access] Caught child exit	relock_result:1	pid26725	child_pid:26730
+[access] child_pid:26730 was unset from childs
+[access] worker_shutdown start. PID:26725
+[access] worker_shutdown succ. PID:26725
+[access] prod started. PID:28483
+[access] child create. PID:28484
+[access] add child pid [28484] to childs. PID:28483
+[access] child create. PID:28485
+[access] add child pid [28485] to childs. PID:28483
+[access] child create. PID:28486
+[access] add child pid [28486] to childs. PID:28483
+[access] child create. PID:28487
+[access] add child pid [28487] to childs. PID:28483
+[access] child create. PID:28488
+[access] add child pid [28488] to childs. PID:28483
+[access] Caught child exit	relock_result:1	pid28483	child_pid:28484
+[access] child_pid:28484 was unset from childs
+[access] Caught child exit	relock_result:1	pid28483	child_pid:28485
+[access] child_pid:28485 was unset from childs
+[access] Caught child exit	relock_result:1	pid28483	child_pid:28486
+[access] child_pid:28486 was unset from childs
+[access] Caught child exit	relock_result:1	pid28483	child_pid:28487
+[access] child_pid:28487 was unset from childs
+[access] Caught child exit	relock_result:1	pid28483	child_pid:28488
+[access] child_pid:28488 was unset from childs
+[access] shutdown Prod start. PID:28483
+[access] shutdownProd succ. PID:28483
