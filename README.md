@@ -25,3 +25,6 @@ $ prod monitor #对子进程的数量进行调整，多杀少启
 * SIGUSER1 : 重新加载配置文件，主要是获取任务名的子进程数量，然后和当前启动的子进程数量
 比较，多kill少add.
 
+#### Requires
+* php: >=5.4(数组语法需要、flock时调用fclose后php5.3之前会释放锁)
+

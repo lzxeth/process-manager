@@ -17,8 +17,7 @@ process()
         $PHP $x stop
     elif [ x"$method" == x"start" ]
     then
-        #nohup $PHP -f $x start >/dev/null 2>&1 &
-        $PHP -f $x start
+        nohup $PHP -f $x start >/dev/null 2>&1 &
     elif [ x"$method" == x"reload" ]
     then
         $PHP -f $x reload

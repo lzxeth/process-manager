@@ -7,7 +7,6 @@ define('_CONSUMERDIR_', _BASEDIR_.'/consumer/');
 
 class ProcessManager
 {
-
     /**
      * 保存子进程pid的数组
      * @var
@@ -21,10 +20,18 @@ class ProcessManager
     private static $_config;
 
     /**
-     * 当前执行的action
+     * run.pid文件描述符
+     * @var
+     */
+    private static $_runfd;
+
+    /**
+     * 当前执行的action[start, stop, reload, monitor]
      * @var
      */
     private static $_cur_action;
+
+
 
     /**
      * 当前子进程是否在执行
@@ -34,7 +41,10 @@ class ProcessManager
 
     private static $_keep_execute = true;
 
-    //当前可以执行的命令[start stop reload monitor]
+    /**
+     * 当前可以执行的命令[start, stop, reload, monitor]
+     * @var
+     */
     private static $_enable_action = [];
 
     const P_CONFIG_FILE = 'prod.ini';
@@ -49,27 +59,21 @@ class ProcessManager
 
     public function __construct()
     {
-        self::$_config = parse_ini_file(_CONFIGDIR_.self::P_CONFIG_FILE);
+        //解析配置文件,获取全部待执行的任务脚本和对应子进程数量
+        self::$_config = $this->parseConfig();
 
+        //获取当前执行的action
         self::$_cur_action = $_SERVER['argv'][1];
-    }
-
-    /**
-     * 重新加载配置文件
-     */
-    public function reParseConfig()
-    {
-        self::$_config = parse_ini_file(_CONFIGDIR_.self::P_CONFIG_FILE);
     }
 
     public function start()
     {
         //获取runpid文件的独占写锁,通过锁获取结果判断当前服务是否在运行,设置对应的action是否可执行
-        $runPidFD = $this->setEnableActionByFlock();
+        self::$_enable_action = $this->setEnableActionByFlock();
 
         //如果当前的指令不在可执行指令内,返回异常
         if (!in_array(self::$_cur_action, self::$_enable_action)) {
-            throw new Exception('cur action can\'t access, check the prod was started or stoped.');
+            throw new Exception("[error]\tcur action can't access, check the prod was started or stoped.");
         }
 
         switch (self::$_cur_action) {
@@ -77,39 +81,38 @@ class ProcessManager
                 $this->printStdout('prod started');
 
                 //把主进程的pid写入文件
-                $master_pid     = posix_getpid();
-                $master_pid_len = strlen($master_pid);
-                //截取文件,只保留前边$master_pid_len长度的字符,当写入时前边保留的字符又被覆盖了,因为上边打开指针是指向文件头的
-                ftruncate($runPidFD, $master_pid_len);
-                fwrite($runPidFD, $master_pid, $master_pid_len);
+                $runPid = $this->setRunPid(posix_getpid());
+                if ($runPid === false) {
+                    throw new Exception("[error]\tparent pid write run.pid err.");
+                }
 
                 //启动多个子进程来跑任务
                 $this->workerStart();
 
                 break;
             case 'stop':
-                $run_pid = intval(fread($runPidFD, 6)); //读取主进程pid,端口最多5位数,加上最后一个\n
-                posix_kill($run_pid, SIGTERM);  //向主进程发送SIGTERM信号,强制停止
+                $runPid = $this->getRunPid(); //读取主进程pid
+                posix_kill($runPid, SIGTERM);  //向主进程发送SIGTERM信号,强制停止
 
                 $kill_errno = posix_get_last_error();
                 $this->manageKillError($kill_errno);
                 break;
             case 'reload':
-                $run_pid = intval(fread($runPidFD, 6));
-                posix_kill($run_pid, SIGHUP);
+                $runPid = $this->getRunPid();
+                posix_kill($runPid, SIGHUP);
 
                 $kill_errno = posix_get_last_error();
                 $this->manageKillError($kill_errno);
                 break;
             case 'monitor':
-                $run_pid = intval(fread($runPidFD, 6));
-                posix_kill($run_pid, SIGUSR1);
+                $runPid = $this->getRunPid();
+                posix_kill($runPid, SIGUSR1);
 
                 $kill_errno = posix_get_last_error();
                 $this->manageKillError($kill_errno);
                 break;
             default:
-                die("Useage: ./prod stop/start/reload/monitor\n");
+                throw new Exception("Useage: ./prod stop/start/reload/monitor");
         }
 
         //主进程等待子进程退出再退出
@@ -125,28 +128,103 @@ class ProcessManager
             if ($child_pid > 0) {
 
                 //父子进程共享打开的连接,子进程退出会关闭,父进程需要重新获取锁
-                $relock_res = flock($runPidFD, LOCK_EX | LOCK_NB);
+                $relock_res = $this->requestRunPidLock();
                 $this->writelog('access.p', "caught child exit,relock_result:$relock_res,pid:$child_pid,ppid:".posix_getpid());
 
                 foreach (self::$_childs as $k => $v) {
-                    foreach ($v as $i => $pid) {
-                        if ($pid == $child_pid) {
-                            unset(self::$_childs[$k][$i]); //从子进程数组中删除退出的子进程
-                            $this->writelog('access.p', "pid:{$child_pid} was unset from childs");
-                        }
+                    $key = array_search($child_pid, $v);
+                    if ($key !== false) {
+                        unset(self::$_childs[$k][$key]); //从子进程数组中删除退出的子进程
+                        $this->writelog('access.p', "pid:{$child_pid} was unset from childs");
                     }
                 }
-
-                /* 这里可以控制父进程在子进程全部退出后退出,但是这个是守护进程,子进程后自动添加,所以不用关闭 */
-                /*if (empty(self::$_childs[$k])) {
-                    $this->writelog('access', "empty dodododo");
-                    break; //退出父进程
-                }*/
             }
             usleep(100000);
         }
     }
 
+    /**
+     * parse config file
+     *
+     * @return array
+     */
+    public function parseConfig()
+    {
+        $configPath = _CONFIGDIR_.self::P_CONFIG_FILE;
+
+        return parse_ini_file($configPath);
+    }
+
+    /**
+     * again parse config file
+     *
+     * @return array
+     */
+    public function reParseConfig()
+    {
+        return self::$_config = $this->parseConfig();
+    }
+
+    /**
+     * 获取run.pid文件的锁
+     *
+     * @return bool
+     * @throws Exception
+     */
+    public function requestRunPidLock()
+    {
+        //进程run.pid文件,进程启动后把pid写入当前文件
+        $runPath = $this->getRunPidPath();
+
+        if (!file_exists($runPath)) {
+            @touch($runPath);
+        }
+
+        self::$_runfd = @fopen($runPath, "r+"); //读写方式打开,指向文件头
+        if (!self::$_runfd) {
+            throw new Exception("[error]\topen the runpid file err.");
+        }
+
+        // LOCK_EX 取得独占锁定（写入的程序。 如果不希望 flock() 在锁定时堵塞，则是 LOCK_NB
+        // 在 PHP 5.3.2版本之前，锁也会被 fclose() 释放
+        $flock = flock(self::$_runfd, LOCK_EX | LOCK_NB);
+
+        // 测试PHP5.5版本发现fclose也会释放锁,导致这里不能关闭文件描述符,并且
+        // 之后不能使用file_*_contents,这类函数最后相当于调用fclose.
+        //fclose($runFD);
+
+        return $flock;
+    }
+
+    /**
+     * 把pid写入run.pid
+     *
+     * @param $pid
+     * @return int
+     */
+    public function setRunPid($pid)
+    {
+        if (!self::$_runfd) {
+            throw new Exception('run.pid fd not exists when set run pid.');
+        }
+
+        ftruncate(self::$_runfd, 0);      // truncate file
+        return fwrite(self::$_runfd, $pid);
+    }
+
+    /**
+     * 获取run.pid
+     *
+     * @return int
+     */
+    public function getRunPid()
+    {
+        if (!self::$_runfd) {
+            throw new Exception('run.pid fd not exists when get run pid.');
+        }
+
+        return intval(fread(self::$_runfd, 6));
+    }
 
     /**
      * 守护进程只能启动一个,通过是否能获取文件锁判断设置哪些action指令可以执行
@@ -155,29 +233,28 @@ class ProcessManager
      */
     public function setEnableActionByFlock()
     {
-        //进程pid文件,进程启动后把pid写入当前文件
-        $file_run = _RUNDIR_.self::P_RUN_PID_FILE;
-        if (!file_exists($file_run)) {
-            @touch($file_run);
-        }
-        $run_fp = @fopen($file_run, "r+"); //读写方式打开,指向文件头
-        if (!$run_fp) {
-            throw new Exception("[error]\topen the runpid file err.");
-        }
+        $flock = $this->requestRunPidLock();
 
-        // LOCK_EX 取得独占锁定（写入的程序。 如果不希望 flock() 在锁定时堵塞，则是 LOCK_NB
-        if (flock($run_fp, LOCK_EX | LOCK_NB)) {
+        if ($flock) {
             //获得锁说明程序没有在运行
-            self::$_enable_action = [self::P_ACTION_START];
+            return [self::P_ACTION_START];
         } else {
             //没获取到锁说明程序在运行,此时可以执行stop,reload,monitor指令
-            self::$_enable_action = [self::P_ACTION_STOP, self::P_ACTION_RELOAD, SELF::P_ACTION_MONITOR];
+            return [self::P_ACTION_STOP, self::P_ACTION_RELOAD, SELF::P_ACTION_MONITOR];
         }
-
-        return $run_fp;
     }
 
-    function parentSigHandler($signo)
+    /**
+     * return run.pid file path
+     *
+     * @return string
+     */
+    public function getRunPidPath()
+    {
+        return _RUNDIR_.self::P_RUN_PID_FILE;
+    }
+
+    function sigHandler($signo)
     {
         switch ($signo) {
             case SIGUSR1:
@@ -189,19 +266,8 @@ class ProcessManager
             case SIGTERM:
                 $this->shutdownProd();
                 break;
-            default:
-        }
-    }
-
-    function childSigHandler($signo)
-    {
-        switch ($signo) {
-            case SIGUSR1: //子进程暂时不处理SIGUSR1信号,父进程收到这个信号已经处理好了
-                break;
-            case SIGHUP: //子进程暂时不处理SIGHUP信号,父进程收到这个信号已经处理好了
-                break;
-            case SIGTERM:
-                $this->shutdownChild();
+            case SIGINT:
+                $this->shutdownChild(); //子进程的信号处理函数
                 break;
             default:
         }
@@ -210,7 +276,7 @@ class ProcessManager
     public function writelog($type, $msg)
     {
         if (!$type) return false;
-        $logMsg = sprintf("[%s] %s.%s\n", $type, self::$_cur_action, $msg);
+        $logMsg = sprintf("[%s] [action:%s] %s\n", $type, self::$_cur_action, $msg);
         $fp     = fopen(_LOGDIR_.self::P_PROD_LOG, 'a+');
         fwrite($fp, $logMsg);
         fclose($fp);
@@ -230,19 +296,22 @@ class ProcessManager
     public function workerStart($config = null)
     {
         $config = $config ?: self::$_config;
-        $this->writelog('access.p', "worker start,ppid:".posix_getpid());
+
         if (is_array($config)) {
+            $this->writelog('access.p', "worker start,ppid:".posix_getpid());
+
+            //注册信号处理函数
+            $this->registerSigHandler();
+
             foreach ($config as $name => $num) {
                 while ($num-- > 0) {
                     $pid = pcntl_fork();
                     if ($pid < 0) { //error
                         $this->writelog('error.p', "fork failed,conf_name={$name}");
+                        exit;
                     } elseif ($pid > 0) {
                         //parent
                         $this->writelog('access.p', "a child created,pid:{$pid},ppid:".posix_getpid());
-
-                        //注册父进程的信号处理函数
-                        $this->registerParentSigHandler();
 
                         //把生成的子进程pid加入childs对应的配置文件name的数组
                         if (!isset(self::$_childs[$name])) {
@@ -253,21 +322,16 @@ class ProcessManager
                         $this->writelog('access.p', "add child pid {$pid} to childs,pid:{$pid},ppid:".posix_getpid());
                     } else {
                         //child
-
-                        //注册子进程的信号处理函数
-                        $this->registerChildSigHandler();
-
-                        //调用每个等待信号通过pcntl_signal() 安装的处理器。
-                        if (function_exists('pcntl_signal_dispatch')) {
-                            pcntl_signal_dispatch();
-                        }
-
                         while (self::$_keep_execute) {
-                            self::$_is_execute = true;
-                            sleep(20); //信号会中断sellp返回剩余的秒数
-                            $flag = self::$_keep_execute ? "keep_exec is true" : "keep_exec is false\n";
+                            //调用每个等待信号通过pcntl_signal() 安装的处理器。
+                            if (function_exists('pcntl_signal_dispatch')) {
+                                pcntl_signal_dispatch();
+                            }
+
+                            self::$_is_execute = true; //设置子进程状态为执行中
+                            sleep(20); //信号会中断sleep返回剩余的秒数
                             $this->consumer($name);
-                            self::$_is_execute = false;
+                            self::$_is_execute = false; //设置子进程执行状态
                             usleep(100000);
                         }
 
@@ -276,8 +340,7 @@ class ProcessManager
                 }
             }
         } else {
-            $this->writelog('warning', "prod.ini parse not arr,pid:".posix_getpid());
-            die("prod.ini parse not arr,pid:".posix_getpid());
+            throw new Exception("prod.ini parse not arr,pid:".posix_getpid());
         }
     }
 
@@ -290,29 +353,19 @@ class ProcessManager
         include($consumer_file);
     }
 
-    public function registerParentSigHandler()
+    /**
+     * register signo handler
+     */
+    public function registerSigHandler()
     {
         if (!function_exists('pcntl_signal_dispatch')) {
             declare(ticks = 1);
         }
 
-        $sigs = [SIGTERM, SIGHUP, SIGUSR1];
+        $sigs = [SIGTERM, SIGHUP, SIGUSR1, SIGINT];
 
         foreach (array_unique($sigs) as $sig) {
-            pcntl_signal($sig, [$this, "parentSigHandler"]);
-        }
-    }
-
-    public function registerchildSigHandler()
-    {
-        if (!function_exists('pcntl_signal_dispatch')) {
-            declare(ticks = 1);
-        }
-
-        $sigs = [SIGTERM, SIGHUP, SIGUSR1];
-
-        foreach (array_unique($sigs) as $sig) {
-            pcntl_signal($sig, [$this, "childSigHandler"]);
+            pcntl_signal($sig, [$this, "sigHandler"]);
         }
     }
 
@@ -352,6 +405,17 @@ class ProcessManager
         //优雅的kill全部子进程
         $this->shutdown($allPidsArr);
         $this->writelog('access.p', "sended SIGTERM to all child,ppid:".posix_getpid());
+
+        //释放锁定，关闭文件描述符，删除run.pid
+        if (self::$_runfd) {
+            flock(self::$_runfd, LOCK_UN);    // 释放锁定
+            fclose(self::$_runfd);
+        }
+        $runPath = $this->getRunPidPath();
+        if (file_exists($runPath)) {
+            @unlink($runPath);
+        }
+
         exit;
     }
 
@@ -430,7 +494,7 @@ class ProcessManager
 
                 //TODO 杀死一个进程时为什么加锁呢,避免启动多个stop程序么？
                 if (flock($fp, LOCK_EX | LOCK_NB)) {
-                    posix_kill($pid, SIGTERM);
+                    posix_kill($pid, SIGINT);
                     $kill_errno = posix_get_last_error();
                     if ($kill_errno == 0) {
                         $this->writelog('access.p', "send SIGTERM to child succ,pid:$pid,ppid:".posix_getpid());
@@ -460,7 +524,7 @@ try {
     $o = new ProcessManager();
     $o->start();
 } catch (Exception $e) {
-    echo $e->getMessage()."\n";
+    echo $e->getMessage().PHP_EOL;
     exit;
 }
 ?>
