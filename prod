@@ -2,6 +2,7 @@
 
 filepath=$(dirname $0)
 x=$filepath/prod.php
+log=$filepath/log/prod.log
 PHP='/usr/bin/php'
 
 useage()
@@ -17,7 +18,8 @@ process()
         $PHP $x stop
     elif [ x"$method" == x"start" ]
     then
-        nohup $PHP -f $x start >/dev/null 2>&1 &
+        #nohup $PHP -f $x start >/dev/null 2>&1 &
+        $PHP -f $x start
     elif [ x"$method" == x"reload" ]
     then
         $PHP -f $x reload

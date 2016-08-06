@@ -32,7 +32,6 @@ class ProcessManager
     private static $_cur_action;
 
 
-
     /**
      * 当前子进程是否在执行
      * @var
@@ -63,7 +62,34 @@ class ProcessManager
         self::$_config = $this->parseConfig();
 
         //获取当前执行的action
+        if (!isset($_SERVER['argv'][1])) {
+            throw new Exception('action is necessary.');
+        }
         self::$_cur_action = $_SERVER['argv'][1];
+    }
+
+    // daemon化程序
+    public function daemonize()
+    {
+        $pid = pcntl_fork();
+        if ($pid == -1) {
+            $this->printStdout('daemon fork process failed.');
+            exit(1);
+        } elseif ($pid) {
+            // if in parent process, exit
+            exit(0);
+        }
+
+        fclose(STDIN);
+        fclose(STDOUT);
+        fclose(STDERR);
+
+        // TODO
+        $STDIN  = fopen('/dev/null', 'r');
+        $STDOUT = fopen('/dev/null', 'w');
+        $STDERR = fopen('/dev/null', 'w');
+
+        posix_setsid();
     }
 
     public function start()
@@ -79,6 +105,8 @@ class ProcessManager
         switch (self::$_cur_action) {
             case 'start':
                 $this->printStdout('prod started');
+
+                $this->daemonize();
 
                 //把主进程的pid写入文件
                 $runPid = $this->setRunPid(posix_getpid());
