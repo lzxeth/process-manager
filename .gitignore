@@ -1,3 +1,3 @@
-/log
-/run
+log/*
+run/*
 
