@@ -1,0 +1,6 @@
+[2016-08-08 09:01:02] [access.p] [action:start] recv SIGTERM,ppid:14034
+[2016-08-08 09:01:02] [access.p] [action:start] send SIGTERM to child succ,pid:14049,ppid:14034
+[2016-08-08 09:01:02] [access.p] [action:start] sended SIGINT to all child,ppid:14034
+[2016-08-08 09:01:06] [access.p] [action:start] worker start,ppid:14235
+[2016-08-08 09:01:06] [access.p] [action:start] a child created,pid:14236,ppid:14235
+[2016-08-08 09:01:06] [access.p] [action:start] add child pid 14236 to childs,pid:14236,ppid:14235
